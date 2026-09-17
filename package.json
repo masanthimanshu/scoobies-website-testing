@@ -1,0 +1,30 @@
+{
+  "name": "scoobies-website-testing",
+  "version": "1.0.0",
+  "description": "Production-ready automated testing and performance auditing suite for Scoobies.co.in with Groq AI dual-model diagnostics",
+  "main": "src/runner.js",
+  "scripts": {
+    "start": "node src/runner.js",
+    "test": "node src/runner.js",
+    "test:headed": "node src/runner.js --headed",
+    "test:fast": "node src/runner.js --no-ai",
+    "email": "node src/mailer.js"
+  },
+  "keywords": [
+    "playwright",
+    "e2e-testing",
+    "performance-auditing",
+    "groq",
+    "qwen",
+    "gpt-oss",
+    "ai-qa"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "playwright": "^1.50.1",
+    "resend": "^6.28.1"
+  }
+}

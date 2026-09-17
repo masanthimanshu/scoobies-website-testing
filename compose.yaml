@@ -1,0 +1,53 @@
+services:
+  scoobies-qa:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: scoobies-qa-suite:latest
+    container_name: scoobies-qa-suite
+    ipc: host
+    shm_size: "1gb"
+    env_file:
+      - .env
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - REPORT_RECIPIENT_EMAIL=${REPORT_RECIPIENT_EMAIL:-masanthimanshu@gmail.com}
+    volumes:
+      - ./reports:/app/reports
+    command: ["node", "src/runner.js"]
+
+  scoobies-qa-fast:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: scoobies-qa-suite:latest
+    container_name: scoobies-qa-fast
+    ipc: host
+    shm_size: "1gb"
+    env_file:
+      - .env
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - REPORT_RECIPIENT_EMAIL=${REPORT_RECIPIENT_EMAIL:-masanthimanshu@gmail.com}
+    volumes:
+      - ./reports:/app/reports
+    command: ["node", "src/runner.js", "--no-ai"]
+    profiles: ["fast"]
+
+  scoobies-mailer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: scoobies-qa-suite:latest
+    container_name: scoobies-mailer
+    env_file:
+      - .env
+    environment:
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - REPORT_RECIPIENT_EMAIL=${REPORT_RECIPIENT_EMAIL:-masanthimanshu@gmail.com}
+    volumes:
+      - ./reports:/app/reports
+    command: ["node", "src/mailer.js"]
+    profiles: ["mailer"]
