@@ -61,7 +61,11 @@ async function runTestSuite() {
   try {
     browser = await chromium.launch({
       headless: !isHeaded,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+      ],
     });
 
     const context = await browser.newContext({

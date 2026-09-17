@@ -6,7 +6,7 @@ services:
     image: scoobies-qa-suite:latest
     container_name: scoobies-qa-suite
     ipc: host
-    shm_size: "1gb"
+    shm_size: "512m"
     env_file:
       - .env
     environment:
@@ -24,7 +24,7 @@ services:
     image: scoobies-qa-suite:latest
     container_name: scoobies-qa-fast
     ipc: host
-    shm_size: "1gb"
+    shm_size: "512m"
     env_file:
       - .env
     environment:
