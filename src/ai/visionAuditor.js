@@ -1,5 +1,5 @@
-const groqClient = require("./groqClient");
-const config = require("../../scoobies.config");
+import groqClient from "./groqClient.js";
+import config from "../../scoobies.config.js";
 
 class VisionAuditor {
   constructor() {
@@ -9,10 +9,10 @@ class VisionAuditor {
   /**
    * Inspects a screenshot for visual defects, layout breaks, and obstructive overlays.
    * @param {Object} params
-   * @param {string} params.milestoneName - Name of the test milestone
-   * @param {string} params.imageBase64 - Base64 string of the JPEG screenshot
-   * @param {string} params.url - URL captured
-   * @param {Object} params.context - Extra context (e.g. actions performed)
+   * @param {string} params.milestoneName
+   * @param {string} params.imageBase64
+   * @param {string} params.url
+   * @param {Object} [params.context={}]
    */
   async inspectScreenshot({ milestoneName, imageBase64, url, context = {} }) {
     const prompt = `You are a Principal QA Visual & UX Auditor evaluating a production e-commerce store (Scoobies India).
@@ -52,9 +52,7 @@ Return your audit in the following structured format:
               { type: "text", text: prompt },
               {
                 type: "image_url",
-                image_url: {
-                  url: `data:image/jpeg;base64,${imageBase64}`,
-                },
+                image_url: { url: `data:image/jpeg;base64,${imageBase64}` },
               },
             ],
           },
@@ -73,20 +71,14 @@ Return your audit in the following structured format:
         };
       }
 
-      // Extract health score if present
-      const scoreMatch =
-        response.content.match(
-          /Score:?\s*([A-F][+]?)\s*\((?:Score\s*)?(\d+)/i,
-        ) || response.content.match(/Score:?\s*([A-F][+]?)/i);
-      const grade = scoreMatch ? scoreMatch[1] : "B+";
-      const scoreNum =
-        scoreMatch && scoreMatch[2] ? parseInt(scoreMatch[2], 10) : 88;
-
+      const scoreMatch = response.content.match(
+        /Score:?\s*([A-F][+]?)(?:\s*\((?:Score\s*)?(\d+))?/i,
+      );
       return {
         model: this.model,
         success: true,
-        grade,
-        scoreNum,
+        grade: scoreMatch ? scoreMatch[1] : "B+",
+        scoreNum: scoreMatch?.[2] ? parseInt(scoreMatch[2], 10) : 88,
         analysis: response.content,
         latencyMs: response.latencyMs,
       };
@@ -101,4 +93,4 @@ Return your audit in the following structured format:
   }
 }
 
-module.exports = new VisionAuditor();
+export default new VisionAuditor();

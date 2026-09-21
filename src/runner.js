@@ -1,36 +1,27 @@
 #!/usr/bin/env node
 
-const { chromium } = require("playwright");
-const path = require("path");
-const fs = require("fs");
-const config = require("../scoobies.config");
-const UserJourney = require("./journeys/userJourney");
-const ReportGenerator = require("./reporter/reportGenerator");
-require("dotenv").config();
+import { chromium } from "playwright";
+import path from "path";
+import fs from "fs";
+import config from "../scoobies.config.js";
+import UserJourney from "./journeys/userJourney.js";
+import ReportGenerator from "./reporter/reportGenerator.js";
+import resendClient from "./email/resendClient.js";
+import { getArg, hasFlag } from "./utils.js";
 
 // Parse CLI flags
-const args = process.argv.slice(2);
-const isHeaded = args.includes("--headed");
-const noAi = args.includes("--no-ai");
-const outputDirArgIndex = args.indexOf("--output-dir");
-const outputDir =
-  outputDirArgIndex !== -1 && args[outputDirArgIndex + 1]
-    ? args[outputDirArgIndex + 1]
-    : config.reporting.outputDir;
-
-const customKeywordIndex = args.indexOf("--keyword");
-if (customKeywordIndex !== -1 && args[customKeywordIndex + 1]) {
-  config.target.searchQuery = args[customKeywordIndex + 1];
+const isHeaded = hasFlag("--headed");
+const noAi = hasFlag("--no-ai");
+const outputDir = getArg("--output-dir", config.reporting.outputDir);
+const customKeyword = getArg(["--keyword", "-k"]);
+if (customKeyword) {
+  config.target.searchQuery = customKeyword;
 }
 
-const emailArgIndex =
-  args.indexOf("--email") !== -1
-    ? args.indexOf("--email")
-    : args.indexOf("--to");
-const recipientEmail =
-  emailArgIndex !== -1 && args[emailArgIndex + 1]
-    ? args[emailArgIndex + 1]
-    : process.env.REPORT_RECIPIENT_EMAIL || config.email?.defaultTo || null;
+const recipientEmail = getArg(
+  ["--email", "--to"],
+  process.env.REPORT_RECIPIENT_EMAIL || config.email?.defaultTo || null,
+);
 
 async function runTestSuite() {
   console.log(
@@ -97,7 +88,7 @@ async function runTestSuite() {
   const endTime = Date.now();
   const totalDurationSec = ((endTime - startTime) / 1000).toFixed(1);
 
-  // Save raw structured telemetry
+  // Persist raw structured telemetry
   fs.writeFileSync(
     path.join(outputDir, "latest-run.json"),
     JSON.stringify(milestones, null, 2),
@@ -124,16 +115,16 @@ async function runTestSuite() {
     "===============================================================",
   );
   milestones.forEach((m) => {
-    const statusIcon =
+    const icon =
       m.status === "PASS" ? "✅" : m.status === "WARN" ? "⚠️ " : "❌";
-    const loadTime = m.performanceMetrics?.loadTimeMs
+    const load = m.performanceMetrics?.loadTimeMs
       ? `${m.performanceMetrics.loadTimeMs}ms`
       : "N/A";
     const lcp = m.performanceMetrics?.lcpMs
       ? `${m.performanceMetrics.lcpMs}ms`
       : "N/A";
     console.log(
-      `  ${statusIcon} [Milestone ${m.id}] ${m.name.padEnd(42)} [${m.status}] (${m.durationMs}ms) | Load: ${loadTime} | LCP: ${lcp}`,
+      `  ${icon} [Milestone ${m.id}] ${m.name.padEnd(42)} [${m.status}] (${m.durationMs}ms) | Load: ${load} | LCP: ${lcp}`,
     );
   });
   console.log(
@@ -146,14 +137,11 @@ async function runTestSuite() {
   // Dispatch email if recipient specified
   if (recipientEmail) {
     try {
-      const resendClient = require("./email/resendClient");
       await resendClient.sendReport({
         to: recipientEmail,
         reportPath: reportInfo.latestPath,
         milestones,
-        summary: {
-          totalDurationSec,
-        },
+        summary: { totalDurationSec },
       });
     } catch (emailErr) {
       console.error("⚠️ Failed to dispatch report email:", emailErr.message);
@@ -165,11 +153,7 @@ async function runTestSuite() {
   );
 
   const hasFailures = milestones.some((m) => m.status === "FAIL");
-  if (hasFailures) {
-    process.exit(1);
-  } else {
-    process.exit(0);
-  }
+  process.exit(hasFailures ? 1 : 0);
 }
 
 runTestSuite().catch((err) => {

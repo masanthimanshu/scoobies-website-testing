@@ -1,26 +1,16 @@
 #!/usr/bin/env node
 
-const path = require("path");
-const fs = require("fs");
-const resendClient = require("./email/resendClient");
-const config = require("../scoobies.config");
-require("dotenv").config();
+import path from "path";
+import config from "../scoobies.config.js";
+import resendClient from "./email/resendClient.js";
+import { getArg } from "./utils.js";
 
-const args = process.argv.slice(2);
-
-function getArgValue(flag) {
-  const index = args.indexOf(flag);
-  return index !== -1 && args[index + 1] ? args[index + 1] : null;
-}
-
-const toEmail =
-  getArgValue("--to") ||
-  getArgValue("--email") ||
-  config.email?.defaultTo ||
-  process.env.REPORT_RECIPIENT_EMAIL;
-const reportFile =
-  getArgValue("--report") || path.resolve("./reports/latest.html");
-const subject = getArgValue("--subject");
+const toEmail = getArg(
+  ["--to", "--email"],
+  process.env.REPORT_RECIPIENT_EMAIL || config.email?.defaultTo || null,
+);
+const reportFile = getArg("--report", path.resolve("./reports/latest.html"));
+const subject = getArg("--subject");
 
 if (!toEmail) {
   console.error("\n❌ Error: Recipient email address is required.");
@@ -30,29 +20,15 @@ if (!toEmail) {
 }
 
 async function send() {
-  let milestones = [];
-  let summary = {};
-
-  const telemetryPath = path.resolve("./reports/latest-run.json");
-  if (fs.existsSync(telemetryPath)) {
-    try {
-      milestones = JSON.parse(fs.readFileSync(telemetryPath, "utf8"));
-    } catch (e) {
-      console.warn("⚠️ Could not load telemetry JSON, sending basic summary.");
-    }
-  }
-
   try {
     const result = await resendClient.sendReport({
       to: toEmail,
       subject,
       reportPath: reportFile,
-      milestones,
-      summary,
     });
 
     console.log("---------------------------------------------------------");
-    console.log(`✉️  Delivery Confirmed:`);
+    console.log("✉️  Delivery Confirmed:");
     console.log(`   Message ID : ${result.id}`);
     console.log(`   Sender     : ${result.sender}`);
     console.log(`   Recipient  : ${result.recipients.join(", ")}`);

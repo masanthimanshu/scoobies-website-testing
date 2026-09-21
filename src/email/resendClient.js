@@ -1,8 +1,8 @@
-const { Resend } = require("resend");
-const fs = require("fs");
-const path = require("path");
-const config = require("../../scoobies.config");
-require("dotenv").config();
+import { Resend } from "resend";
+import fs from "fs";
+import path from "path";
+import config from "../../scoobies.config.js";
+import { escapeHtml, calculateSummary } from "../utils.js";
 
 class ResendClient {
   constructor() {
@@ -15,18 +15,12 @@ class ResendClient {
   }
 
   static escapeHtml(str) {
-    if (!str) return "";
-    return str
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
+    return escapeHtml(str);
   }
 
   /**
-   * Helper to format markdown text into email-client-safe HTML with 100% inline styles.
-   * Leverages container style inheritance to keep the total payload well under Gmail's 102 KB clipping limit.
+   * Formats markdown text into email-safe HTML with 100% inline styles.
+   * Keeps payload under Gmail's 102 KB clipping limit.
    */
   static formatEmailMarkdown(text) {
     if (!text)
@@ -44,22 +38,17 @@ class ResendClient {
 
     function formatInline(str) {
       if (!str) return "";
-      let s = ResendClient.escapeHtml(str);
-      // Links
-      s = s.replace(
-        /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
-        '<a href="$2" style="color:#2563eb;text-decoration:underline;" target="_blank">$1</a>',
-      );
-      // Bold
-      s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-      // Italic
-      s = s.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "<em>$1</em>");
-      // Inline code
-      s = s.replace(
-        /`([^`]+)`/g,
-        '<code style="font-family:monospace;font-size:11px;background:#f1f5f9;padding:1px 3px;border-radius:3px;border:1px solid #e2e8f0;">$1</code>',
-      );
-      return s;
+      return escapeHtml(str)
+        .replace(
+          /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+          '<a href="$2" style="color:#2563eb;text-decoration:underline;" target="_blank">$1</a>',
+        )
+        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+        .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "<em>$1</em>")
+        .replace(
+          /`([^`]+)`/g,
+          '<code style="font-family:monospace;font-size:11px;background:#f1f5f9;padding:1px 3px;border-radius:3px;border:1px solid #e2e8f0;">$1</code>',
+        );
     }
 
     function flushList() {
@@ -117,10 +106,9 @@ class ResendClient {
       const rawLine = lines[i];
       const line = rawLine.trim();
 
-      // Check code block fence
       if (line.startsWith("```")) {
         if (inCodeBlock) {
-          const codeText = ResendClient.escapeHtml(codeBlockContent.join("\n"));
+          const codeText = escapeHtml(codeBlockContent.join("\n"));
           out.push(
             `<div style="margin:6px 0;background:#0f172a;border-radius:5px;padding:8px 10px;overflow-x:auto;"><pre style="margin:0;font-family:monospace;font-size:11px;color:#f8fafc;line-height:1.4;white-space:pre-wrap;word-break:break-all;">${codeText}</pre></div>`,
           );
@@ -146,17 +134,14 @@ class ResendClient {
         continue;
       }
 
-      // Check table row
       if (line.startsWith("|") && (line.endsWith("|") || line.includes("|"))) {
         flushList();
         inTable = true;
         tableRows.push(line);
         continue;
-      } else {
-        flushTable();
       }
+      flushTable();
 
-      // Check list items
       if (
         line.startsWith("- ") ||
         line.startsWith("* ") ||
@@ -168,11 +153,9 @@ class ResendClient {
           .replace(/^(\d+)\.\s+/, "$1. ");
         listItems.push(formatInline(cleanItem));
         continue;
-      } else {
-        flushList();
       }
+      flushList();
 
-      // Check blockquote
       if (line.startsWith("> ")) {
         out.push(
           `<div style="margin:5px 0;padding:5px 8px;border-left:3px solid #3b82f6;background:#f0f9ff;font-size:11px;color:#1e3a8a;border-radius:0 3px 3px 0;">${formatInline(line.slice(2))}</div>`,
@@ -180,7 +163,6 @@ class ResendClient {
         continue;
       }
 
-      // Check headings
       if (line.startsWith("#### ")) {
         out.push(
           `<div style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.03em;margin:8px 0 3px 0;">${formatInline(line.slice(5))}</div>`,
@@ -206,7 +188,6 @@ class ResendClient {
         continue;
       }
 
-      // Horizontal separator
       if (line.startsWith("---") || line.startsWith("***")) {
         out.push(
           '<hr style="border:none;border-top:1px solid #e2e8f0;margin:8px 0;">',
@@ -214,7 +195,6 @@ class ResendClient {
         continue;
       }
 
-      // Regular paragraph
       out.push(
         `<p style="margin:0 0 5px 0;word-break:break-word;">${formatInline(line)}</p>`,
       );
@@ -227,9 +207,7 @@ class ResendClient {
   }
 
   /**
-   * Generates a complete, beautiful, email-client-compatible HTML report.
-   * All styles are 100% inlined and table-structured for flawless Gmail / Outlook rendering.
-   * Total size is kept strictly under 100 KB so Gmail never displays "[Message clipped]".
+   * Generates a complete email-compatible HTML report with 100% inline styles.
    */
   generateCompleteEmailReport({ summary, milestones = [] }) {
     const isWarn = summary.overallStatus === "WARN";
@@ -249,7 +227,6 @@ class ResendClient {
       timeStyle: "short",
     });
 
-    // Summary table rows
     const summaryRows = milestones
       .map((m) => {
         const perf = m.performanceMetrics || {};
@@ -263,9 +240,7 @@ class ResendClient {
         <tr style="border-bottom:1px solid #e2e8f0;">
           <td style="padding:6px 8px;font-weight:600;color:#0f172a;">${m.id}. ${m.name}</td>
           <td style="padding:6px 8px;text-align:center;">
-            <span style="display:inline-block;padding:1px 6px;border-radius:3px;font-weight:700;color:${mColor};background:${mBg};">
-              ${m.status}
-            </span>
+            <span style="display:inline-block;padding:1px 6px;border-radius:3px;font-weight:700;color:${mColor};background:${mBg};">${m.status}</span>
           </td>
           <td style="padding:6px 8px;text-align:right;font-family:monospace;color:#334155;">${(m.durationMs / 1000).toFixed(1)}s</td>
           <td style="padding:6px 8px;text-align:right;font-family:monospace;color:#334155;">${perf.lcpMs || 0} ms</td>
@@ -276,7 +251,6 @@ class ResendClient {
       })
       .join("");
 
-    // Milestone Cards
     const milestoneCards = milestones
       .map((m) => {
         const perf = m.performanceMetrics || {};
@@ -294,9 +268,7 @@ class ResendClient {
         );
 
         return `
-        <!-- CARD ${m.id} -->
         <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:18px;border:1px solid #e2e8f0;border-radius:8px;background:#ffffff;border-collapse:separate;overflow:hidden;">
-          <!-- CARD HEADER -->
           <tr>
             <td style="padding:10px 14px;background:#f8fafc;border-bottom:1px solid #e2e8f0;">
               <table width="100%" cellpadding="0" cellspacing="0" border="0">
@@ -310,16 +282,13 @@ class ResendClient {
                   </td>
                   <td style="vertical-align:middle;text-align:right;white-space:nowrap;">
                     <span style="font-size:11px;color:#64748b;font-family:monospace;margin-right:6px;">${(m.durationMs / 1000).toFixed(1)}s</span>
-                    <span style="display:inline-block;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:700;color:${mColor};background:${mBg};border:1px solid ${mBorder};">
-                      ${m.status}
-                    </span>
+                    <span style="display:inline-block;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:700;color:${mColor};background:${mBg};border:1px solid ${mBorder};">${m.status}</span>
                   </td>
                 </tr>
               </table>
             </td>
           </tr>
 
-          <!-- PERFORMANCE METRICS RIBBON -->
           <tr>
             <td style="padding:8px 14px;background:#ffffff;border-bottom:1px solid #e2e8f0;">
               <table width="100%" cellpadding="0" cellspacing="0" border="0" style="text-align:center;">
@@ -356,7 +325,6 @@ class ResendClient {
           ${
             m.screenshot?.base64 || m.screenshot?.filepath
               ? `
-          <!-- SCREENSHOT MOCKUP FRAME -->
           <tr>
             <td style="padding:10px 14px 0 14px;background:#ffffff;">
               <div style="border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;background:#f8fafc;">
@@ -380,7 +348,6 @@ class ResendClient {
               : ""
           }
 
-          <!-- VISUAL QA AUDIT (Qwen 3.8-27B) -->
           <tr>
             <td style="padding:12px 14px;border-bottom:1px solid #e2e8f0;">
               <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:6px;">
@@ -400,7 +367,6 @@ class ResendClient {
             </td>
           </tr>
 
-          <!-- ROOT CAUSE & ARCHITECTURE (GPT OSS 120B) -->
           <tr>
             <td style="padding:12px 14px;">
               <div style="margin-bottom:6px;">
@@ -413,7 +379,6 @@ class ResendClient {
             </td>
           </tr>
 
-          <!-- TELEMETRY SUMMARY -->
           <tr>
             <td style="padding:7px 14px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:11px;color:#64748b;">
               <strong style="color:#334155;">Telemetry:</strong> 
@@ -434,14 +399,10 @@ class ResendClient {
   <title>Scoobies QA & Performance Audit</title>
 </head>
 <body style="margin:0;padding:20px 8px;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;color:#0f172a;">
-  <!-- OUTER WRAPPER TABLE -->
   <table width="100%" cellpadding="0" cellspacing="0" border="0">
     <tr>
       <td align="center">
-        <!-- INNER CONTAINER -->
         <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:680px;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
-          
-          <!-- EXECUTIVE HEADER -->
           <tr>
             <td style="padding:22px 24px;border-bottom:1px solid #e2e8f0;background:#ffffff;">
               <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#64748b;margin-bottom:4px;">Automated Quality Assurance</div>
@@ -452,7 +413,6 @@ class ResendClient {
             </td>
           </tr>
 
-          <!-- SUITE STATUS BANNER -->
           <tr>
             <td style="padding:16px 24px;">
               <table width="100%" cellpadding="0" cellspacing="0" border="0" style="padding:12px 16px;border-radius:8px;background:${statusBg};border:1px solid ${statusBorder};">
@@ -472,7 +432,6 @@ class ResendClient {
             </td>
           </tr>
 
-          <!-- INTERACTIVE REPORT ATTACHMENT NOTICE -->
           <tr>
             <td style="padding:0 24px 14px 24px;">
               <table width="100%" cellpadding="0" cellspacing="0" border="0" style="padding:10px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;">
@@ -491,7 +450,6 @@ class ResendClient {
             </td>
           </tr>
 
-          <!-- KPI STRIP -->
           <tr>
             <td style="padding:0 24px 16px 24px;">
               <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #e2e8f0;border-radius:6px;font-size:11px;text-align:center;">
@@ -511,7 +469,6 @@ class ResendClient {
             </td>
           </tr>
 
-          <!-- DUAL AI CALLOUT -->
           <tr>
             <td style="padding:0 24px 16px 24px;">
               <div style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:11px;color:#475569;">
@@ -522,7 +479,6 @@ class ResendClient {
             </td>
           </tr>
 
-          <!-- EXECUTIVE SUMMARY TABLE -->
           <tr>
             <td style="padding:0 24px 20px 24px;">
               <div style="font-size:12px;font-weight:700;color:#0f172a;margin-bottom:6px;">Executive Milestone Summary</div>
@@ -543,21 +499,18 @@ class ResendClient {
             </td>
           </tr>
 
-          <!-- SECTION DIVIDER -->
           <tr>
             <td style="padding:0 24px 12px 24px;">
               <div style="font-size:13px;font-weight:700;color:#0f172a;border-bottom:2px solid #0f172a;padding-bottom:5px;">Complete Milestone Diagnostics</div>
             </td>
           </tr>
 
-          <!-- FULL MILESTONES LIST -->
           <tr>
             <td style="padding:0 24px 16px 24px;">
               ${milestoneCards}
             </td>
           </tr>
 
-          <!-- FOOTER -->
           <tr>
             <td style="padding:16px 24px;font-size:11px;color:#94a3b8;text-align:center;border-top:1px solid #e2e8f0;background:#fafafa;">
               Scoobies E-Commerce QA & Performance Suite &bull; Dispatched via Resend &bull; 100% Inline HTML
@@ -574,13 +527,13 @@ class ResendClient {
   }
 
   /**
-   * Sends the QA Audit Report via Resend with both inline preview and interactive attachment.
+   * Sends the QA Audit Report via Resend with inline preview and interactive attachment.
    * @param {Object} options
-   * @param {string|string[]} options.to - Recipient email address(es)
-   * @param {string} [options.subject] - Optional custom subject
-   * @param {string} [options.reportPath] - Path to the standalone HTML report file
-   * @param {Array} [options.milestones] - Milestones data
-   * @param {Object} [options.summary] - Summary KPI data
+   * @param {string|string[]} options.to
+   * @param {string} [options.subject]
+   * @param {string} [options.reportPath]
+   * @param {Array} [options.milestones]
+   * @param {Object} [options.summary]
    */
   async sendReport({ to, subject, reportPath, milestones = [], summary = {} }) {
     if (!this.resend) {
@@ -589,14 +542,18 @@ class ResendClient {
       );
     }
 
-    const recipients = Array.isArray(to) ? to : [to];
-    if (!recipients.length || !recipients[0]) {
+    const rawRecipients = Array.isArray(to) ? to : to ? [to] : [];
+    const recipients = rawRecipients
+      .flatMap((item) => (typeof item === "string" ? item.split(",") : []))
+      .map((e) => e.trim())
+      .filter(Boolean);
+
+    if (!recipients.length) {
       throw new Error(
         "Recipient email address is required (e.g. --to recipient@example.com).",
       );
     }
 
-    // Load milestones from telemetry JSON if not provided
     let actualMilestones = milestones;
     if (!actualMilestones || actualMilestones.length === 0) {
       const telemetryPath = path.resolve("./reports/latest-run.json");
@@ -609,71 +566,20 @@ class ResendClient {
       }
     }
 
-    // Compute summary if not provided
-    const passedCount = actualMilestones.filter(
-      (m) => m.status === "PASS",
-    ).length;
-    const warnCount = actualMilestones.filter(
-      (m) => m.status === "WARN",
-    ).length;
-    const failedCount = actualMilestones.filter(
-      (m) => m.status === "FAIL",
-    ).length;
-    const overallStatus =
-      summary.overallStatus ||
-      (failedCount > 0 ? "FAIL" : warnCount > 0 ? "WARN" : "PASS");
-    const passRate =
-      summary.passRate ||
-      Math.round(
-        ((passedCount + warnCount) / (actualMilestones.length || 1)) * 100,
-      );
-
-    const totalTransferredKb = actualMilestones.reduce(
-      (acc, m) => acc + (m.performanceMetrics?.totalSizeKb || 0),
-      0,
-    );
-    const avgLoadTime =
-      summary.avgLoadTime ||
-      Math.round(
-        actualMilestones.reduce(
-          (acc, m) =>
-            acc +
-            (m.performanceMetrics?.loadTimeMs ||
-              m.performanceMetrics?.domContentLoadedMs ||
-              0),
-          0,
-        ) / (actualMilestones.length || 1),
-      );
-    const avgLcp =
-      summary.avgLcp ||
-      Math.round(
-        actualMilestones.reduce(
-          (acc, m) => acc + (m.performanceMetrics?.lcpMs || 0),
-          0,
-        ) / (actualMilestones.length || 1),
-      );
-    const totalDurationSec = summary.totalDurationSec || "137.9";
-
     const computedSummary = {
-      overallStatus,
-      passRate,
-      totalDurationSec,
-      avgLcp,
-      avgLoadTime,
-      totalTransferredMb: (totalTransferredKb / 1024).toFixed(2),
+      ...calculateSummary(
+        actualMilestones,
+        summary.totalDurationSec || "137.9",
+      ),
+      ...summary,
     };
 
-    // Generate complete, beautiful, email-safe HTML report
     const fullEmailHtml = this.generateCompleteEmailReport({
       summary: computedSummary,
       milestones: actualMilestones,
     });
 
-    // Prepare attachments:
-    // 1. Attached interactive HTML report (latest.html / scoobies-qa-report.html)
-    // 2. Attached milestone screenshots as inline CID attachments
     const attachments = [];
-
     const reportFilePath = reportPath || path.resolve("./reports/latest.html");
     if (fs.existsSync(reportFilePath)) {
       attachments.push({
@@ -705,7 +611,7 @@ class ResendClient {
 
     const emailSubject =
       subject ||
-      `${config.email?.subjectPrefix || "[QA Audit]"} Scoobies.co.in Storefront Report — ${overallStatus} (${passRate}%)`;
+      `${config.email?.subjectPrefix || "[QA Audit]"} Scoobies.co.in Storefront Report — ${computedSummary.overallStatus} (${computedSummary.passRate}%)`;
 
     console.log(`\n📧 Sending QA Audit Report via Resend...`);
     console.log(`   From        : ${this.sender}`);
@@ -741,4 +647,4 @@ class ResendClient {
   }
 }
 
-module.exports = new ResendClient();
+export default new ResendClient();

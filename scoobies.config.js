@@ -1,4 +1,6 @@
-module.exports = {
+import "dotenv/config";
+
+export default {
   target: {
     baseUrl: "https://scoobies.co.in",
     name: "Scoobies India Storefront",

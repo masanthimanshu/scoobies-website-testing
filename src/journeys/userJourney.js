@@ -1,17 +1,17 @@
-const PerformanceAuditor = require("../audits/performanceAuditor");
-const visionAuditor = require("../ai/visionAuditor");
-const rootCauseAnalyst = require("../ai/rootCauseAnalyst");
-const config = require("../../scoobies.config");
-const path = require("path");
-const fs = require("fs");
+import PerformanceAuditor from "../audits/performanceAuditor.js";
+import visionAuditor from "../ai/visionAuditor.js";
+import rootCauseAnalyst from "../ai/rootCauseAnalyst.js";
+import config from "../../scoobies.config.js";
+import path from "path";
+import fs from "fs";
 
 class UserJourney {
   /**
    * @param {Object} options
    * @param {import('playwright').BrowserContext} options.context
    * @param {import('playwright').Page} options.page
-   * @param {boolean} options.enableAi
-   * @param {string} options.outputDir
+   * @param {boolean} [options.enableAi=true]
+   * @param {string} [options.outputDir="./reports"]
    */
   constructor({ context, page, enableAi = true, outputDir = "./reports" }) {
     this.context = context;
@@ -27,23 +27,22 @@ class UserJourney {
   }
 
   /**
-   * Helper to dismiss common promotional overlays or newsletter dialogs
+   * Fast dismissal of common promotional overlays or newsletter dialogs
    */
   async dismissModals() {
     try {
-      const dismissSelectors = [
+      const dismissSelector = [
         'button[aria-label="Close"]',
         ".popup-close",
         ".modal__close-button",
         '[class*="close" i][role="button"]',
         "#shopify-pc__banner__btn-accept",
         ".newsletter-popup__close",
-      ];
-      for (const selector of dismissSelectors) {
-        const el = this.page.locator(selector).first();
-        if (await el.isVisible({ timeout: 400 }).catch(() => false)) {
-          await el.click().catch(() => {});
-        }
+      ].join(", ");
+
+      const el = this.page.locator(dismissSelector).first();
+      if (await el.isVisible({ timeout: 350 }).catch(() => false)) {
+        await el.click().catch(() => {});
       }
     } catch (e) {
       // Ignored non-critical dismiss error
@@ -51,22 +50,19 @@ class UserJourney {
   }
 
   /**
-   * Captures a high-resolution screenshot, returns base64 and file path.
-   * Automatically prunes prior screenshots for this milestone to keep storage lightweight.
+   * Captures a high-resolution screenshot and returns base64 and filepath.
+   * Prunes previous screenshots for this milestone to prevent storage bloat.
    */
   async captureMilestoneScreenshot(milestoneId) {
     try {
       if (fs.existsSync(this.screenshotsDir)) {
-        const existingFiles = fs.readdirSync(this.screenshotsDir);
-        for (const file of existingFiles) {
+        for (const file of fs.readdirSync(this.screenshotsDir)) {
           if (file.startsWith(`${milestoneId}-`) && file.endsWith(".jpg")) {
             fs.unlinkSync(path.join(this.screenshotsDir, file));
           }
         }
       }
-    } catch (e) {
-      // Ignored non-critical pruning error
-    }
+    } catch (e) {}
 
     const filename = `${milestoneId}-${Date.now()}.jpg`;
     const filepath = path.join(this.screenshotsDir, filename);
@@ -86,7 +82,7 @@ class UserJourney {
   }
 
   /**
-   * Executes an individual milestone with complete telemetry, screenshots, and AI diagnostics
+   * Executes an individual milestone with telemetry, screenshots, and AI diagnostics
    */
   async runMilestone({ id, name, description, action }) {
     console.log(`\n▶ [Milestone ${id}] ${name}...`);
@@ -100,7 +96,7 @@ class UserJourney {
 
     try {
       actionResult = await action();
-      await this.page.waitForTimeout(800); // Allow rendering settle
+      await this.page.waitForTimeout(500);
     } catch (err) {
       status = "FAIL";
       errorMessage = err.message;
@@ -110,11 +106,11 @@ class UserJourney {
     const durationMs = Date.now() - startTime;
     const currentUrl = this.page.url();
 
-    // Collect performance & DOM telemetry
+    // Harvest telemetry & DOM state
     const performanceMetrics = await auditor.collectMetrics(this.page);
     const domSnapshot = await auditor.extractDomSnapshot(this.page);
 
-    // Capture high-resolution screenshot
+    // Capture viewport screenshot
     let screenshotData = { filename: "", filepath: "", base64: "" };
     try {
       screenshotData = await this.captureMilestoneScreenshot(`m${id}`);
@@ -124,7 +120,7 @@ class UserJourney {
       );
     }
 
-    // AI Audits executed concurrently for maximum performance
+    // AI Audits executed concurrently
     let visionAudit = null;
     let rootCauseAudit = null;
 
@@ -154,16 +150,15 @@ class UserJourney {
       rootCauseAudit = rResult;
     }
 
-    // Determine performance warning status if thresholds exceeded
-    if (status === "PASS") {
-      if (
-        performanceMetrics.fcpMs > config.thresholds.fcpMs ||
+    // Evaluate against performance threshold limits
+    if (
+      status === "PASS" &&
+      (performanceMetrics.fcpMs > config.thresholds.fcpMs ||
         performanceMetrics.ttfbMs > config.thresholds.ttfbMs ||
         performanceMetrics.cls > config.thresholds.cls ||
-        performanceMetrics.consoleErrors.length > 3
-      ) {
-        status = "WARN";
-      }
+        performanceMetrics.consoleErrors.length > 3)
+    ) {
+      status = "WARN";
     }
 
     const milestoneRecord = {
@@ -219,15 +214,14 @@ class UserJourney {
           .catch(() => {});
         await this.dismissModals();
 
-        // Scroll slightly to trigger lazy-loaded sections and test sticky header behavior
         await this.page.evaluate(() =>
           window.scrollBy({ top: 400, behavior: "smooth" }),
         );
-        await this.page.waitForTimeout(1000);
+        await this.page.waitForTimeout(400);
         await this.page.evaluate(() =>
           window.scrollTo({ top: 0, behavior: "smooth" }),
         );
-        await this.page.waitForTimeout(500);
+        await this.page.waitForTimeout(300);
 
         const pageTitle = await this.page.title();
         const headerExists = await this.page
@@ -247,7 +241,6 @@ class UserJourney {
       description:
         'Executes catalog search for keyword "stationery", audits search modal/input, results grid, and filter options.',
       action: async () => {
-        // Try searching via search input or direct search URL
         const searchInput = this.page
           .locator('input[name="q"], #Search-In-Modal, input[type="search"]')
           .first();
@@ -260,20 +253,17 @@ class UserJourney {
         let searchUsed = "direct-input";
         if (await searchIcon.isVisible({ timeout: 1000 }).catch(() => false)) {
           await searchIcon.click().catch(() => {});
-          await this.page.waitForTimeout(500);
+          await this.page.waitForTimeout(300);
         }
 
         if (await searchInput.isVisible({ timeout: 1500 }).catch(() => false)) {
           await searchInput.fill(config.target.searchQuery);
           await this.page.keyboard.press("Enter");
         } else {
-          // Fallback to Shopify standard search URL
           searchUsed = "url-navigation";
           await this.page.goto(
             `${config.target.baseUrl}/search?q=${encodeURIComponent(config.target.searchQuery)}`,
-            {
-              waitUntil: "domcontentloaded",
-            },
+            { waitUntil: "domcontentloaded" },
           );
         }
 
@@ -312,7 +302,6 @@ class UserJourney {
       description:
         "Navigates to product detail page, verifies title, pricing, variant selectors, gallery images, and Add-to-Cart readiness.",
       action: async () => {
-        // Find first valid product link from search results or fallback to sample
         const firstProductLink = this.page
           .locator('a[href*="/products/"]')
           .first();
@@ -374,10 +363,9 @@ class UserJourney {
           .first();
         if (await atcButton.isVisible({ timeout: 2000 })) {
           await atcButton.click();
-          await this.page.waitForTimeout(2000); // Allow drawer animation or notification
+          await this.page.waitForTimeout(1200);
         }
 
-        // Navigate directly to cart page for strict audit
         await this.page.goto(`${config.target.baseUrl}/cart`, {
           waitUntil: "domcontentloaded",
           timeout: config.browser.navigationTimeout,
@@ -398,14 +386,13 @@ class UserJourney {
           .isVisible()
           .catch(() => false);
 
-        // Attempt quantity modification if quantity controls exist
         const plusButton = this.page
           .locator('button[name="plus"], .quantity__button[name="plus"]')
           .first();
         let quantityModified = false;
         if (await plusButton.isVisible({ timeout: 1000 }).catch(() => false)) {
           await plusButton.click().catch(() => {});
-          await this.page.waitForTimeout(1000);
+          await this.page.waitForTimeout(800);
           quantityModified = true;
         }
 
@@ -437,7 +424,6 @@ class UserJourney {
             .waitForURL(/.*(checkouts|checkout).*/, { timeout: 25000 })
             .catch(() => {}),
           checkoutBtn.click().catch(async () => {
-            // Fallback: navigate directly to /checkout
             await this.page.goto(`${config.target.baseUrl}/checkout`, {
               waitUntil: "domcontentloaded",
             });
@@ -452,19 +438,17 @@ class UserJourney {
         const checkoutUrl = this.page.url();
         const checkoutTitle = await this.page.title();
 
-        const formFields = await this.page.evaluate(() => {
-          return {
-            hasEmailField: !!document.querySelector(
-              'input[type="email"], input[autocomplete*="email"], #email',
-            ),
-            hasShippingAddress: !!document.querySelector(
-              'input[autocomplete*="address-line1"], [placeholder*="Address" i]',
-            ),
-            hasOrderSummary: !!document.querySelector(
-              '[role="table"], .order-summary, [data-order-summary]',
-            ),
-          };
-        });
+        const formFields = await this.page.evaluate(() => ({
+          hasEmailField: !!document.querySelector(
+            'input[type="email"], input[autocomplete*="email"], #email',
+          ),
+          hasShippingAddress: !!document.querySelector(
+            'input[autocomplete*="address-line1"], [placeholder*="Address" i]',
+          ),
+          hasOrderSummary: !!document.querySelector(
+            '[role="table"], .order-summary, [data-order-summary]',
+          ),
+        }));
 
         return {
           checkoutUrl,
@@ -478,4 +462,4 @@ class UserJourney {
   }
 }
 
-module.exports = UserJourney;
+export default UserJourney;

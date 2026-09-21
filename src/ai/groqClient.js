@@ -1,5 +1,4 @@
-const config = require("../../scoobies.config");
-require("dotenv").config();
+import config from "../../scoobies.config.js";
 
 class GroqClient {
   constructor() {
@@ -52,7 +51,7 @@ class GroqClient {
         if (response.status === 429 || response.status >= 500) {
           const errorText = await response.text();
           console.warn(
-            `[GroqClient] Attempt ${attempt}/${this.maxRetries} failed with status ${response.status}: ${errorText.slice(0, 150)}`,
+            `[GroqClient] Attempt ${attempt}/${this.maxRetries} (${response.status}): ${errorText.slice(0, 120)}`,
           );
           if (attempt < this.maxRetries) {
             await this.sleep(this.retryDelayMs * Math.pow(2, attempt - 1));
@@ -70,13 +69,11 @@ class GroqClient {
 
         const data = await response.json();
         const choice = data.choices?.[0];
-        const content = choice?.message?.content || "";
-        const reasoning = choice?.message?.reasoning || null;
 
         return {
           success: true,
-          content,
-          reasoning,
+          content: choice?.message?.content || "",
+          reasoning: choice?.message?.reasoning || null,
           model: data.model || model,
           usage: data.usage || null,
           latencyMs: duration,
@@ -95,4 +92,4 @@ class GroqClient {
   }
 }
 
-module.exports = new GroqClient();
+export default new GroqClient();

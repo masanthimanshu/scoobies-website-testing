@@ -22,6 +22,7 @@ class PerformanceAuditor {
 
     page.on("requestfinished", async (request) => {
       const startTime = this._requestStartTimes.get(request) || Date.now();
+      this._requestStartTimes.delete(request);
       const duration = Date.now() - startTime;
       let status = 0;
       let size = 0;
@@ -30,11 +31,10 @@ class PerformanceAuditor {
         const response = await request.response();
         if (response) {
           status = response.status();
-          const headers = response.headers();
-          size = parseInt(headers["content-length"] || "0", 10);
+          size = parseInt(response.headers()["content-length"] || "0", 10);
         }
       } catch (e) {
-        // Response might be disposed or aborted
+        // Disposed or aborted response
       }
 
       this.requests.push({
@@ -50,6 +50,7 @@ class PerformanceAuditor {
 
     page.on("requestfailed", (request) => {
       const startTime = this._requestStartTimes.get(request) || Date.now();
+      this._requestStartTimes.delete(request);
       const duration = Date.now() - startTime;
       const failure = request.failure();
 
@@ -69,7 +70,7 @@ class PerformanceAuditor {
 
     page.on("console", (msg) => {
       const type = msg.type();
-      if (["error", "warning"].includes(type)) {
+      if (type === "error" || type === "warning") {
         this.consoleLogs.push({
           type,
           text: msg.text(),
@@ -88,71 +89,57 @@ class PerformanceAuditor {
   }
 
   /**
-   * Evaluates browser Performance API to get Core Web Vitals and timing metrics.
+   * Evaluates browser Performance API to harvest Core Web Vitals and timing metrics.
    * @param {import('playwright').Page} page
    */
   async collectMetrics(page) {
-    let browserMetrics = {};
+    let browserMetrics = {
+      ttfbMs: 0,
+      domContentLoadedMs: 0,
+      loadTimeMs: 0,
+      fcpMs: 0,
+      lcpMs: 0,
+      cls: 0,
+    };
 
     try {
       browserMetrics = await page.evaluate(() => {
+        const nav = window.performance.getEntriesByType("navigation")?.[0];
         const timing = window.performance.timing;
-        const navEntries = window.performance.getEntriesByType("navigation");
-        const nav = navEntries && navEntries[0] ? navEntries[0] : null;
 
-        // TTFB calculation
         let ttfb = 0;
-        if (nav && nav.responseStart) {
-          ttfb = Math.round(nav.responseStart - nav.requestStart);
-        } else if (timing) {
-          ttfb = timing.responseStart - timing.requestStart;
-        }
-
-        // DOM Content Loaded & Page Load
         let domContentLoaded = 0;
         let loadTime = 0;
-        if (nav) {
+
+        if (nav && nav.responseStart) {
+          ttfb = Math.round(nav.responseStart - nav.requestStart);
           domContentLoaded = Math.round(
             nav.domContentLoadedEventEnd - nav.startTime,
           );
           loadTime = Math.round(nav.loadEventEnd - nav.startTime);
         } else if (timing) {
+          ttfb = timing.responseStart - timing.requestStart;
           domContentLoaded =
             timing.domContentLoadedEventEnd - timing.navigationStart;
           loadTime = timing.loadEventEnd - timing.navigationStart;
         }
 
-        // Paint Timing (FCP)
-        let fcp = 0;
-        const paintEntries = window.performance.getEntriesByType("paint");
-        const fcpEntry = paintEntries.find(
-          (entry) => entry.name === "first-contentful-paint",
-        );
-        if (fcpEntry) {
-          fcp = Math.round(fcpEntry.startTime);
-        }
+        const paint = window.performance.getEntriesByType("paint");
+        const fcpEntry = paint.find((e) => e.name === "first-contentful-paint");
+        const fcp = fcpEntry ? Math.round(fcpEntry.startTime) : 0;
 
-        // LCP
-        let lcp = 0;
-        // In Playwright context, check for stored LCP or calculate from largest entry
-        const resourceEntries = window.performance.getEntriesByType("resource");
-        let largestResourceDuration = 0;
-        for (const res of resourceEntries) {
-          if (res.duration > largestResourceDuration) {
-            largestResourceDuration = res.duration;
-          }
+        let maxResourceDur = 0;
+        for (const res of window.performance.getEntriesByType("resource")) {
+          if (res.duration > maxResourceDur) maxResourceDur = res.duration;
         }
-        lcp = Math.round(Math.max(fcp, largestResourceDuration));
+        const lcp = Math.round(Math.max(fcp, maxResourceDur));
 
-        // CLS estimate from layout-shift entries
         let cls = 0;
         try {
-          const shiftEntries =
-            window.performance.getEntriesByType("layout-shift");
-          for (const shift of shiftEntries) {
-            if (!shift.hadRecentInput) {
-              cls += shift.value;
-            }
+          for (const shift of window.performance.getEntriesByType(
+            "layout-shift",
+          )) {
+            if (!shift.hadRecentInput) cls += shift.value;
           }
         } catch (e) {}
 
@@ -167,18 +154,8 @@ class PerformanceAuditor {
       });
     } catch (e) {
       console.warn("Failed to harvest browser performance metrics:", e.message);
-      browserMetrics = {
-        ttfbMs: 0,
-        domContentLoadedMs: 0,
-        loadTimeMs: 0,
-        fcpMs: 0,
-        lcpMs: 0,
-        cls: 0,
-      };
     }
 
-    // Network summary calculation
-    const totalRequests = this.requests.length;
     let totalBytes = 0;
     const typeBreakdown = {};
     const anomalies = [];
@@ -202,7 +179,7 @@ class PerformanceAuditor {
 
     return {
       ...browserMetrics,
-      requestCount: totalRequests,
+      requestCount: this.requests.length,
       totalSizeBytes: totalBytes,
       totalSizeKb: Math.round(totalBytes / 1024),
       resourceBreakdown: typeBreakdown,
@@ -212,15 +189,12 @@ class PerformanceAuditor {
   }
 
   /**
-   * Extracts essential DOM snapshot structure for AI reasoner
+   * Extracts essential DOM snapshot structure for AI diagnostic reasoning.
    * @param {import('playwright').Page} page
    */
   async extractDomSnapshot(page) {
     try {
       return await page.evaluate(() => {
-        const title = document.title;
-        const h1 =
-          document.querySelector("h1")?.innerText?.trim() || "No H1 found";
         const interactiveCounts = {
           buttons: document.querySelectorAll("button").length,
           inputs: document.querySelectorAll("input").length,
@@ -241,16 +215,19 @@ class PerformanceAuditor {
               style.opacity !== "0" &&
               el.offsetHeight > 50
             ) {
+              const classNameStr =
+                typeof el.className === "string"
+                  ? el.className
+                  : String(el.className.baseVal || "");
               activeModals.push({
                 tag: el.tagName.toLowerCase(),
-                className: el.className.toString().slice(0, 60),
+                className: classNameStr.slice(0, 60),
                 id: el.id || undefined,
-                textPreview: el.innerText.trim().slice(0, 80),
+                textPreview: (el.innerText || "").trim().slice(0, 80),
               });
             }
           });
 
-        // Key CTAs
         const ctas = [];
         document
           .querySelectorAll('button, input[type="submit"], a.btn, a.button')
@@ -267,17 +244,17 @@ class PerformanceAuditor {
           });
 
         return {
-          title,
-          h1,
+          title: document.title,
+          h1: document.querySelector("h1")?.innerText?.trim() || "No H1 found",
           interactiveCounts,
           activeModals: activeModals.slice(0, 5),
           keyCTAs: ctas.slice(0, 8),
         };
       });
     } catch (e) {
-      return { error: "DOM snapshot extraction failed: " + e.message };
+      return { error: `DOM snapshot extraction failed: ${e.message}` };
     }
   }
 }
 
-module.exports = PerformanceAuditor;
+export default PerformanceAuditor;
