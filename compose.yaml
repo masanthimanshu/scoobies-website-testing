@@ -1,10 +1,25 @@
 services:
   qa:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        GROQ_API_KEY: ${GROQ_API_KEY:-}
+        RESEND_API_KEY: ${RESEND_API_KEY:-}
+        REPORT_RECIPIENT_EMAIL: ${REPORT_RECIPIENT_EMAIL:-}
+    image: scoobies-qa-suite:latest
+    container_name: scoobies-qa-suite
     ipc: host
-    env_file: .env
+    shm_size: "512m"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - REPORT_RECIPIENT_EMAIL=${REPORT_RECIPIENT_EMAIL:-}
+      - NODE_ENV=production
+      - CI=true
     volumes:
-      - scoobies-reports:/app/reports
-
-volumes:
-  scoobies-reports:
+      - ./reports:/app/reports
+    command: ["node", "src/runner.js"]
