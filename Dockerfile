@@ -1,6 +1,6 @@
-# Use the official Microsoft Playwright image matching our Playwright version (v1.50.1)
+# Use the official Microsoft Playwright image matching our Playwright version (v1.63.0)
 # Contains Ubuntu 24.04 (Noble), Node.js, and pre-installed browser binaries with all OS dependencies
-FROM mcr.microsoft.com/playwright:v1.50.1-noble
+FROM mcr.microsoft.com/playwright:v1.63.0-noble
 
 # Set working directory inside container
 WORKDIR /app

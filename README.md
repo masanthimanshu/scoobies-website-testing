@@ -217,7 +217,7 @@ node src/mailer.js --to team@example.com --subject "[Custom Audit] Storefront He
 
 ### Running with Docker
 
-The suite includes an optimized [Dockerfile](Dockerfile) based on `mcr.microsoft.com/playwright:v1.50.1-noble` and a preconfigured [compose.yaml](compose.yaml).
+The suite includes an optimized [Dockerfile](Dockerfile) based on `mcr.microsoft.com/playwright:v1.63.0-noble` and a preconfigured [compose.yaml](compose.yaml).
 
 #### Using Docker Compose (Recommended)
 

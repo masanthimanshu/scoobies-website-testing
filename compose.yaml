@@ -8,6 +8,7 @@ services:
         RESEND_API_KEY: ${RESEND_API_KEY:-}
         REPORT_RECIPIENT_EMAIL: ${REPORT_RECIPIENT_EMAIL:-}
     image: scoobies-qa-suite:latest
+    pull_policy: build
     container_name: scoobies-qa-suite
     ipc: host
     shm_size: "512m"
